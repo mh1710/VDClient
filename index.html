@@ -1,0 +1,697 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mediasoup (WebRTC) + Insights (WS) + (Opcional) Upload Chunks</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; }
+    body { margin: 0; background: #0b0f19; color: #e8ecf3; }
+    .wrap { max-width: 1040px; margin: 0 auto; padding: 28px 16px; }
+    h1 { font-size: 20px; margin: 0 0 12px; }
+    p { margin: 0 0 16px; color: #b8c0cc; line-height: 1.35; }
+    .layout { display: grid; grid-template-columns: 1.2fr .8fr; gap: 12px; }
+    @media (max-width: 900px){ .layout { grid-template-columns: 1fr; } }
+    .card { background: #121a2b; border: 1px solid #22304d; border-radius: 14px; padding: 16px; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    button { border: 0; border-radius: 12px; padding: 10px 14px; background: #2b6bff; color: white; cursor: pointer; font-weight: 600; }
+    button.secondary { background: #2a3346; }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    .pill { display: inline-flex; align-items: center; gap: 8px; border: 1px solid #22304d; border-radius: 999px; padding: 6px 10px; background: #0e1526; color: #d7deea; font-size: 12px; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #51607a; }
+    .dot.on { background: #41d16b; box-shadow: 0 0 0 4px rgba(65,209,107,.15); }
+    .dot.ws { background: #ffb020; }
+    .dot.ws.on { background: #41d16b; box-shadow: 0 0 0 4px rgba(65,209,107,.15); }
+    .grid { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 12px; }
+    .field { display: grid; gap: 6px; }
+    label { font-size: 12px; color: #b8c0cc; }
+    input { width: 100%; box-sizing: border-box; border: 1px solid #22304d; border-radius: 10px; background: #0e1526; color: #e8ecf3; padding: 10px 12px; outline: none; }
+    input:focus { border-color: #2b6bff; }
+    pre { margin: 14px 0 0; background: #0a1020; border: 1px solid #22304d; border-radius: 12px; padding: 12px; overflow: auto; max-height: 320px; color: #d7deea; font-size: 12px; line-height: 1.35; }
+    .small { font-size: 12px; color: #b8c0cc; }
+    code { background: rgba(255,255,255,.06); padding: 2px 6px; border-radius: 6px; }
+    .panel-title { font-size: 13px; color: #b8c0cc; margin: 0 0 10px; }
+    .stateBox { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .metric { border: 1px solid #22304d; border-radius: 12px; padding: 10px; background: #0e1526; }
+    .metric .k { font-size: 11px; color: #b8c0cc; }
+    .metric .v { font-size: 16px; font-weight: 700; margin-top: 4px; }
+    .insights { display: grid; gap: 10px; }
+    .insight { border: 1px solid #22304d; border-radius: 12px; padding: 12px; background: #0e1526; }
+    .insight .top { display:flex; align-items:center; justify-content:space-between; gap:10px; }
+    .badge { font-size: 11px; border: 1px solid #22304d; border-radius: 999px; padding: 4px 8px; color: #d7deea; background: rgba(255,255,255,.04); white-space: nowrap; }
+    .insight h3 { margin: 10px 0 6px; font-size: 14px; }
+    .insight .why { color: #cfd7e6; font-size: 12px; line-height: 1.35; }
+    .insight .act { margin-top: 10px; font-size: 12px; color: #b8c0cc; }
+    .insight .act b { color: #e8ecf3; }
+    .muted { color: #b8c0cc; font-size: 12px; }
+    .toggleRow { display:flex; gap:10px; align-items:center; flex-wrap: wrap; }
+    .toggleRow input[type="checkbox"] { width:auto; }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <h1>Mediasoup (WebRTC) + Insights (WS) + (Opcional) Upload de Chunks</h1>
+    <p>
+      Envia áudio via <b>WebRTC (mediasoup)</b> para o Node e recebe insights via <b>WebSocket</b>.
+      Se marcar o checkbox, também envia chunks via HTTP para manter o Whisper funcionando no modo atual.
+    </p>
+
+    <div class="layout">
+      <div class="card">
+        <div class="row" style="justify-content: space-between;">
+          <div class="row">
+            <span class="pill"><span id="statusDot" class="dot"></span> <span id="statusText">Parado</span></span>
+            <span class="pill"><span id="wsDot" class="dot ws"></span> <span id="wsText">WS: desconectado</span></span>
+            <span class="pill">Chunks HTTP: <b id="seqText">0</b></span>
+            <span class="pill">Mediasoup: <b id="msText">—</b></span>
+            <span class="pill">Producer: <b id="producerText">—</b></span>
+            <span class="pill">Egress: <b id="egressText">—</b></span>
+          </div>
+          <div class="row">
+            <button id="startBtn">Iniciar</button>
+            <button id="stopBtn" class="secondary" disabled>Parar</button>
+          </div>
+        </div>
+
+        <div class="grid">
+          <div class="row">
+            <div class="field" style="flex:1; min-width: 240px;">
+              <label>Endpoint (Node upload HTTP)</label>
+              <input id="endpointInput" value="http://localhost:3000/upload-audio" />
+            </div>
+            <div class="field" style="width: 180px;">
+              <label>Slice (ms) (somente p/ chunks HTTP)</label>
+              <input id="sliceInput" type="number" min="1000" step="500" value="5000" />
+            </div>
+            <div class="field" style="width: 220px;">
+              <label>Room ID (contexto)</label>
+              <input id="roomInput" value="room-1" />
+            </div>
+          </div>
+
+          <div class="toggleRow">
+            <label class="pill" style="cursor:pointer;">
+              <input id="enableHttpChunks" type="checkbox" checked />
+              Enviar chunks HTTP (compat Whisper atual)
+            </label>
+
+            <label class="pill" style="cursor:pointer;">
+              <input id="autoStartEgress" type="checkbox" />
+              Auto iniciar Egress (após produzir)
+            </label>
+
+            <span class="small">
+              Se desmarcar “chunks HTTP” e não ligar egress, você só estará enviando áudio via WebRTC sem transcrever.
+            </span>
+          </div>
+
+          <div class="row">
+            <button id="egressStartBtn" class="secondary" disabled>Iniciar Egress</button>
+            <button id="egressStopBtn" class="secondary" disabled>Parar Egress</button>
+          </div>
+
+          <div class="field">
+            <label>Contexto opcional (vai como <code>context_hint</code> no upload HTTP)</label>
+            <input id="contextInput" placeholder="Ex: Reunião de vendas com cliente X" />
+            <div class="small">
+              Sirva via HTTP (não <code>file://</code>). Ex:
+              <code>python -m http.server 5173</code> e abra <code>http://localhost:5173/index.html</code>.
+            </div>
+          </div>
+
+          <pre id="log"></pre>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="panel-title">Copiloto de Vendas (tempo real)</div>
+
+        <div class="stateBox" style="margin-bottom:12px;">
+          <div class="metric"><div class="k">Estágio</div><div class="v" id="stageText">unknown</div></div>
+          <div class="metric"><div class="k">Intenção</div><div class="v" id="intentText">unknown</div></div>
+          <div class="metric"><div class="k">Score</div><div class="v" id="scoreText">—</div></div>
+          <div class="metric"><div class="k">Gate</div><div class="v" id="gateText">—</div></div>
+        </div>
+
+        <div class="row" style="justify-content: space-between; margin-bottom: 8px;">
+          <div class="muted">Insights recentes</div>
+          <button id="clearBtn" class="secondary" style="padding:8px 10px; border-radius:10px;">Limpar</button>
+        </div>
+
+        <div id="insights" class="insights">
+          <div class="muted" id="emptyInsights">Nenhum insight ainda. Fale algo com dor/objeção/orçamento/prazo etc.</div>
+        </div>
+
+        <div class="muted" style="margin-top:12px;">
+          Insights chegam via WS quando o Python retornar <code>new_insights</code>.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    // ✅ FIX: usar esm.sh para converter CommonJS -> ESM no browser
+    import * as mediasoupClient from "https://esm.sh/mediasoup-client@3";
+
+    const $ = (id) => document.getElementById(id);
+
+    const startBtn = $("startBtn");
+    const stopBtn  = $("stopBtn");
+    const clearBtn = $("clearBtn");
+    const logEl    = $("log");
+
+    const statusDot = $("statusDot");
+    const statusText = $("statusText");
+    const wsDot = $("wsDot");
+    const wsText = $("wsText");
+
+    const seqText = $("seqText");
+    const msText = $("msText");
+    const producerText = $("producerText");
+    const egressText = $("egressText");
+
+    const endpointInput = $("endpointInput");
+    const sliceInput = $("sliceInput");
+    const roomInput = $("roomInput");
+    const contextInput = $("contextInput");
+    const enableHttpChunks = $("enableHttpChunks");
+    const autoStartEgress = $("autoStartEgress");
+
+    const egressStartBtn = $("egressStartBtn");
+    const egressStopBtn  = $("egressStopBtn");
+
+    const stageText = $("stageText");
+    const intentText = $("intentText");
+    const scoreText = $("scoreText");
+    const gateText = $("gateText");
+
+    const insightsEl = $("insights");
+    const emptyInsights = $("emptyInsights");
+
+    function log(...args) {
+      const line = args.map(a => (typeof a === "string" ? a : JSON.stringify(a, null, 2))).join(" ");
+      logEl.textContent += line + "\n";
+      logEl.scrollTop = logEl.scrollHeight;
+      console.log(...args);
+    }
+
+    function setStatus(on, text) {
+      statusDot.classList.toggle("on", !!on);
+      statusText.textContent = text;
+    }
+    function setWSStatus(on, text) {
+      wsDot.classList.toggle("on", !!on);
+      wsText.textContent = text;
+    }
+    function setMediasoupStatus(text) { msText.textContent = text; }
+    function setProducerText(text) { producerText.textContent = text; }
+    function setEgressText(text) { egressText.textContent = text; }
+
+    function escapeHtml(s) {
+      return String(s || "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function updateState(memory_state) {
+      const deal = (memory_state && memory_state.deal) ? memory_state.deal : {};
+      stageText.textContent = deal.stage || "unknown";
+      intentText.textContent = deal.intent_level || "unknown";
+      scoreText.textContent =
+        (deal.opportunity_score === null || deal.opportunity_score === undefined)
+          ? "—"
+          : String(deal.opportunity_score);
+    }
+
+    function updateGate(gate) {
+      if (!gate) return;
+      const ok = gate.ok ? "ok" : "skip";
+      const score = (gate.score === null || gate.score === undefined) ? "—" : gate.score;
+      gateText.textContent = `${ok} (${score})`;
+    }
+
+    function renderInsights(newInsights) {
+      if (!newInsights || newInsights.length === 0) return;
+      emptyInsights.style.display = "none";
+
+      for (const ins of newInsights.slice().reverse()) {
+        const el = document.createElement("div");
+        el.className = "insight";
+
+        const conf =
+          (ins.confidence !== null && ins.confidence !== undefined)
+            ? Math.round(ins.confidence * 100) + "%"
+            : "—";
+        const type = ins.type || "insight";
+
+        el.innerHTML = `
+          <div class="top">
+            <span class="badge">${type}</span>
+            <span class="badge">conf: ${conf}</span>
+          </div>
+          <h3>${escapeHtml(ins.title || "Insight")}</h3>
+          <div class="why">${escapeHtml(ins.why || "")}</div>
+          <div class="act"><b>Ação:</b> ${escapeHtml(ins.next_action || "")}</div>
+        `;
+        insightsEl.insertBefore(el, insightsEl.firstChild);
+      }
+
+      const children = Array.from(insightsEl.querySelectorAll(".insight"));
+      if (children.length > 20) {
+        for (let i = 20; i < children.length; i++) children[i].remove();
+      }
+    }
+
+    /* =========================
+       WS base (insights + signaling)
+       ========================= */
+    let ws = null;
+    let wsConnected = false;
+    let wsJoinSentForRoom = null;
+    const pending = new Map();
+
+    function getWSUrlFromEndpoint(endpoint) {
+      const u = new URL(endpoint);
+      const proto = (u.protocol === "https:") ? "wss:" : "ws:";
+      return `${proto}//${u.host}`;
+    }
+
+    function wsSend(obj) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+      ws.send(JSON.stringify(obj));
+      return true;
+    }
+
+    function wsRequest(action, data = {}) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        return Promise.reject(new Error("ws_not_open"));
+      }
+      const requestId = `${action}_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+      ws.send(JSON.stringify({ action, data, requestId }));
+
+      return new Promise((resolve, reject) => {
+        pending.set(requestId, { resolve, reject });
+        setTimeout(() => {
+          if (pending.has(requestId)) {
+            pending.delete(requestId);
+            reject(new Error(`ws_request_timeout:${action}`));
+          }
+        }, 12000);
+      });
+    }
+
+    function ensureWS() {
+      const endpoint = endpointInput.value.trim();
+      const wsUrl = getWSUrlFromEndpoint(endpoint);
+
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        const roomId = roomInput.value.trim() || "global";
+        if (wsConnected && wsJoinSentForRoom !== roomId) {
+          wsSend({ action: "joinRoom", data: { roomId }, requestId: "join_" + Date.now() });
+          wsJoinSentForRoom = roomId;
+          log(`WS re-join roomId=${roomId}`);
+        }
+        return;
+      }
+
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        wsConnected = true;
+        setWSStatus(true, `WS: conectado (${wsUrl})`);
+        const roomId = roomInput.value.trim() || "global";
+        wsSend({ action: "joinRoom", data: { roomId }, requestId: "join_" + Date.now() });
+        wsJoinSentForRoom = roomId;
+        log(`WS conectado. joinRoom roomId=${roomId}`);
+      };
+
+      ws.onmessage = (ev) => {
+        let msg = null;
+        try { msg = JSON.parse(ev.data); } catch (_) {}
+        if (!msg) return;
+
+        if (msg.requestId && pending.has(msg.requestId)) {
+          const p = pending.get(msg.requestId);
+          pending.delete(msg.requestId);
+          if (msg.ok) p.resolve(msg.data);
+          else p.reject(new Error(msg.error || "ws_request_failed"));
+          return;
+        }
+
+        if (msg.type === "insights") {
+          if (msg.memory_state) updateState(msg.memory_state);
+          if (msg.gate) updateGate(msg.gate);
+          if (Array.isArray(msg.new_insights)) renderInsights(msg.new_insights);
+        }
+
+        if (msg.type === "gate") {
+          if (msg.memory_state) updateState(msg.memory_state);
+          if (msg.gate) updateGate(msg.gate);
+        }
+      };
+
+      ws.onclose = () => {
+        wsConnected = false;
+        setWSStatus(false, "WS: desconectado (reconectando...)");
+        wsJoinSentForRoom = null;
+
+        for (const [rid, p] of pending.entries()) {
+          p.reject(new Error("ws_closed"));
+          pending.delete(rid);
+        }
+        setTimeout(() => ensureWS(), 1000);
+      };
+    }
+
+    async function waitWsOpen() {
+      ensureWS();
+      for (let i = 0; i < 40; i++) {
+        if (ws && ws.readyState === WebSocket.OPEN) return;
+        await new Promise(r => setTimeout(r, 100));
+      }
+      throw new Error("ws_not_ready");
+    }
+
+    /* =========================
+       Mediasoup
+       ========================= */
+    let device = null;
+    let sendTransport = null;
+    let producer = null;
+
+    let stream = null;      // compartilhado (WebRTC + MediaRecorder fallback)
+    let audioTrack = null;
+
+    let egressRunning = false;
+
+    async function startMediasoup(roomId) {
+      await waitWsOpen();
+      setMediasoupStatus("iniciando...");
+
+      const routerRtpCapabilities = await wsRequest("getRouterRtpCapabilities", {});
+      device = new mediasoupClient.Device();
+      await device.load({ routerRtpCapabilities });
+
+      const transportInfo = await wsRequest("createWebRtcTransport", {});
+      sendTransport = device.createSendTransport(transportInfo);
+
+      sendTransport.on("connect", async ({ dtlsParameters }, cb, errCb) => {
+        try {
+          await wsRequest("connectTransport", { transportId: sendTransport.id, dtlsParameters });
+          cb();
+        } catch (err) {
+          errCb(err);
+        }
+      });
+
+      sendTransport.on("produce", async ({ kind, rtpParameters }, cb, errCb) => {
+        try {
+          const res = await wsRequest("produce", {
+            transportId: sendTransport.id,
+            kind,
+            rtpParameters
+          });
+          cb({ id: res.id });
+        } catch (err) {
+          errCb(err);
+        }
+      });
+
+      // ✅ LOG: estado da conexão WebRTC
+      sendTransport.on("connectionstatechange", (state) => {
+        log("mediasoup: transport state =", state);
+      });
+
+      // captura mic só UMA vez
+      if (!stream) {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+      audioTrack = stream.getAudioTracks()[0];
+      if (!audioTrack) throw new Error("no_audio_track");
+
+      producer = await sendTransport.produce({ track: audioTrack, appData: { roomId } });
+
+      setMediasoupStatus("enviando áudio (producer ativo)");
+      setProducerText(producer.id);
+
+      egressStartBtn.disabled = false;
+      egressStopBtn.disabled = true;
+
+      log("mediasoup: producer criado", { producerId: producer.id });
+
+      if (autoStartEgress.checked) {
+        await startEgress();
+      }
+    }
+
+    async function stopMediasoup() {
+      try { await stopEgress().catch(() => {}); } catch (_) {}
+
+      try { if (producer) producer.close(); } catch (_) {}
+      producer = null;
+
+      try { if (sendTransport) sendTransport.close(); } catch (_) {}
+      sendTransport = null;
+
+      device = null;
+
+      setMediasoupStatus("—");
+      setProducerText("—");
+      egressStartBtn.disabled = true;
+      egressStopBtn.disabled = true;
+    }
+
+    async function startEgress() {
+      if (!producer) throw new Error("no_producer");
+      if (egressRunning) return;
+
+      setEgressText("iniciando...");
+      const resp = await wsRequest("startEgress", { producerId: producer.id });
+
+      egressRunning = true;
+      setEgressText("ON");
+      egressStartBtn.disabled = true;
+      egressStopBtn.disabled = false;
+
+      log("egress: startEgress OK", resp);
+    }
+
+    async function stopEgress() {
+      if (!producer) {
+        setEgressText("—");
+        egressRunning = false;
+        return;
+      }
+      if (!egressRunning) return;
+
+      setEgressText("parando...");
+      const resp = await wsRequest("stopEgress", { producerId: producer.id });
+
+      egressRunning = false;
+      setEgressText("—");
+      egressStartBtn.disabled = false;
+      egressStopBtn.disabled = true;
+
+      log("egress: stopEgress OK", resp);
+    }
+
+    /* =========================
+       Fallback: HTTP chunks
+       ========================= */
+    let runningChunks = false;
+    let stoppingChunks = false;
+    let recorder = null;
+    let seq = 0;
+
+    function pickMimeType() {
+      const candidates = [
+        "audio/webm;codecs=opus",
+        "audio/webm",
+        "audio/ogg;codecs=opus",
+        "audio/ogg"
+      ];
+      for (const t of candidates) {
+        if (MediaRecorder.isTypeSupported(t)) return t;
+      }
+      return "";
+    }
+
+    async function sendChunk(blob, seqNumber) {
+      const endpoint = endpointInput.value.trim();
+      const roomId = roomInput.value.trim() || "global";
+      const context_hint = contextInput.value.trim();
+
+      const fd = new FormData();
+      const filename = `chunk-${seqNumber}.webm`;
+
+      fd.append("audio", blob, filename);
+      fd.append("seq", String(seqNumber));
+      fd.append("timestamp", String(Date.now()));
+      fd.append("roomId", roomId);
+      if (context_hint) fd.append("context_hint", context_hint);
+
+      log(`→ (HTTP) Enviando ${filename} (${blob.size} bytes) para ${endpoint}`);
+      const res = await fetch(endpoint, { method: "POST", body: fd });
+
+      let data = {};
+      try { data = await res.json(); } catch (_) {}
+
+      if (!res.ok) {
+        log("✖ (HTTP) Erro:", res.status, data);
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      if (data.memory_state) updateState(data.memory_state);
+      if (data.gate) updateGate(data.gate);
+      if (Array.isArray(data.new_insights) && data.new_insights.length > 0) renderInsights(data.new_insights);
+
+      log("✓ (HTTP) Resposta:", data);
+      return data;
+    }
+
+    async function recordOneSlice() {
+      if (!runningChunks || stoppingChunks) return;
+      if (!stream) throw new Error("no_stream_for_recorder");
+
+      const SLICE_MS = Math.max(1000, Number(sliceInput.value) || 5000);
+      const chunks = [];
+
+      const mimeType = pickMimeType();
+      const localRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      recorder = localRecorder;
+
+      const localMime = localRecorder.mimeType || "audio/webm";
+
+      localRecorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+      localRecorder.onerror = (e) => { log("MediaRecorder error:", e?.error || e); };
+
+      localRecorder.onstop = async () => {
+        if (!runningChunks) return;
+
+        try {
+          const blob = new Blob(chunks, { type: localMime });
+          seq += 1;
+          seqText.textContent = String(seq);
+          await sendChunk(blob, seq);
+        } catch (err) {
+          log("Erro ao enviar chunk HTTP:", String(err));
+          await stopHttpChunks();
+          return;
+        }
+
+        if (runningChunks && !stoppingChunks) recordOneSlice();
+      };
+
+      localRecorder.start();
+      setTimeout(() => {
+        try { if (localRecorder.state !== "inactive") localRecorder.stop(); } catch (_) {}
+      }, SLICE_MS);
+    }
+
+    async function startHttpChunks() {
+      if (runningChunks) return;
+      runningChunks = true;
+      stoppingChunks = false;
+      seq = 0;
+      seqText.textContent = "0";
+      log("HTTP chunks: iniciando loop de gravação por slice...");
+      await recordOneSlice();
+    }
+
+    async function stopHttpChunks() {
+      stoppingChunks = true;
+      runningChunks = false;
+      try { if (recorder && recorder.state !== "inactive") recorder.stop(); } catch (_) {}
+      recorder = null;
+      stoppingChunks = false;
+      log("HTTP chunks: parado.");
+    }
+
+    /* =========================
+       Start/Stop do app
+       ========================= */
+    let running = false;
+
+    async function startAll() {
+      if (running) return;
+
+      logEl.textContent = "";
+      ensureWS();
+
+      const roomId = roomInput.value.trim() || "global";
+
+      setStatus(true, "Iniciando...");
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
+
+      try {
+        // ✅ deixa o startMediasoup adquirir stream (1x)
+        await startMediasoup(roomId);
+
+        if (enableHttpChunks.checked) await startHttpChunks();
+        else seqText.textContent = "0";
+
+        running = true;
+        setStatus(true, "Rodando");
+        log("Sistema rodando.");
+      } catch (err) {
+        log("Falha ao iniciar:", String(err));
+        await stopAll();
+      }
+    }
+
+    async function stopAll() {
+      setStatus(false, "Parando...");
+      running = false;
+
+      try { await stopHttpChunks(); } catch (_) {}
+      try { await stopMediasoup(); } catch (_) {}
+
+      try { stream?.getTracks()?.forEach(t => t.stop()); } catch (_) {}
+      stream = null;
+      audioTrack = null;
+
+      setStatus(false, "Parado");
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+
+      setEgressText("—");
+      egressRunning = false;
+
+      log("Sistema parado.");
+    }
+
+    /* =========================
+       UI events
+       ========================= */
+    clearBtn.addEventListener("click", () => {
+      Array.from(insightsEl.querySelectorAll(".insight")).forEach(x => x.remove());
+      emptyInsights.style.display = "block";
+    });
+
+    roomInput.addEventListener("change", () => ensureWS());
+
+    startBtn.addEventListener("click", startAll);
+    stopBtn.addEventListener("click", stopAll);
+
+    egressStartBtn.addEventListener("click", async () => {
+      try { await startEgress(); } catch (e) { log("startEgress falhou:", String(e)); }
+    });
+
+    egressStopBtn.addEventListener("click", async () => {
+      try { await stopEgress(); } catch (e) { log("stopEgress falhou:", String(e)); }
+    });
+
+    setStatus(false, "Parado");
+    setWSStatus(false, "WS: desconectado");
+    setMediasoupStatus("—");
+    setProducerText("—");
+    setEgressText("—");
+    ensureWS();
+  </script>
+</body>
+</html>

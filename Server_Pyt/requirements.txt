@@ -1,0 +1,11 @@
+fastapi
+uvicorn[standard]
+python-multipart
+aiofiles
+requests
+sentence-transformers
+faiss-cpu
+redis
+soundfile
+groq
+faster-whisper
