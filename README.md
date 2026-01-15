@@ -199,19 +199,29 @@ Retorna JSON para o Node (que faz broadcast)
 8) Checklist de inicialização (Windows)
 
 Python
+
 cd Server_Pyt
+
 python -m venv .venv
+
 .venv\Scripts\activate
+
 pip install -r requirements.txt
-uvicorn audio_analysis_server:app --host 0.0.0.0 --port 8000
+
+uvicorn app:app --host 0.0.0.0 --port 8000
 
 Node
+
 cd 'MS node'
+
 npm install
+
 node server.js
 
 Front:
+
 Para rodar o index.html rode:
+
 python -m http.server 5173.
 
 Clique para conectar no WS.
